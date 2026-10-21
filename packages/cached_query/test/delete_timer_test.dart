@@ -70,5 +70,50 @@ void main() {
         expect(cache.getQuery("idle"), isNull);
       });
     });
+      test(
+      "a dropped query's delete timer doesn't remove its replacement",
+      () {
+        fakeAsync((async) {
+          final cache = CachedQuery.asNewInstance()
+            ..config(
+              config: GlobalQueryConfig(
+                cacheDuration: const Duration(minutes: 5),
+              ),
+            );
+          Query<int> create() => Query<int>(
+                key: "replaced",
+                queryFn: () async => 1,
+                cache: cache,
+              );
+
+          final old = create();
+          final oldSub = old.stream.listen((_) {});
+          async.flushMicrotasks();
+
+          // The cache drops the key while a screen still listens to the old
+          // query, and a later lookup creates a replacement.
+          cache.deleteCache(key: "replaced");
+          final replacement = create();
+          expect(replacement, isNot(same(old)));
+          final newSub = replacement.stream.listen((_) {});
+          async.flushMicrotasks();
+
+          // The screen re-binds: the old query loses its last listener and
+          // arms its delete timer.
+          oldSub.cancel();
+          async
+            ..flushMicrotasks()
+            ..elapse(const Duration(minutes: 6));
+
+          // Before the fix the old timer deleted the key, taking the
+          // replacement the screen now shows with it.
+          expect(cache.getQuery("replaced"), same(replacement));
+
+          newSub.cancel();
+          async.elapse(const Duration(minutes: 6));
+          expect(cache.getQuery("replaced"), isNull);
+        });
+      },
+    );
   });
 }

@@ -355,7 +355,23 @@ final class QueryController<T> {
   /// listeners again.
   void _deleteIfInactive() {
     if (isActive) return;
+    // The cache may already map this key to a newer controller (this one was
+    // dropped by deleteCache and a later lookup created a replacement). The
+    // key no longer belongs to this controller, so deleting it would remove
+    // the replacement a screen may be showing right now.
+    if (_isSuperseded) return;
     deleteQuery();
+  }
+
+  /// True when the cache holds a different controller under [key].
+  bool get _isSuperseded {
+    final current = _cache.getQuery<Cacheable<dynamic>>(key);
+    final currentController = switch (current) {
+      Query(:final _controller) => _controller,
+      InfiniteQuery(:final _controller) => _controller,
+      _ => null,
+    };
+    return currentController != null && !identical(currentController, this);
   }
 
   void _cancelDelete() {
